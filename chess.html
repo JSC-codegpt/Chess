@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chess Sandbox vs AI</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #eee;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 0;
+  }
+  #container {
+    display: flex;
+    margin-top: 10px;
+  }
+  #board {
+    display: grid;
+    grid-template-columns: repeat(8, 60px);
+    grid-template-rows: repeat(8, 60px);
+    border: 2px solid #333;
+  }
+  .square {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .light { background: #f0d9b5; }
+  .dark { background: #b58863; }
+  .square img {
+    max-width: 100%;
+    max-height: 100%;
+  }
+  #captured {
+    display: flex;
+    flex-direction: column;
+    margin-left: 10px;
+  }
+  .captured-row {
+    display: flex;
+    flex-wrap: wrap;
+    min-height: 30px;
+    margin: 5px 0;
+  }
+  #controls {
+    margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+
+<h2>Chess Sandbox vs Stockfish</h2>
+
+<div id="controls">
+  <select id="pieceSelector">
+    <option value="">-- Select Piece --</option>
+    <option value="wP">White Pawn</option>
+    <option value="wR">White Rook</option>
+    <option value="wN">White Knight</option>
+    <option value="wB">White Bishop</option>
+    <option value="wQ">White Queen</option>
+    <option value="wK">White King</option>
+    <option value="bP">Black Pawn</option>
+    <option value="bR">Black Rook</option>
+    <option value="bN">Black Knight</option>
+    <option value="bB">Black Bishop</option>
+    <option value="bQ">Black Queen</option>
+    <option value="bK">Black King</option>
+  </select>
+  <button id="startBtn">Start Game</button>
+  <button id="resetBtn">Reset Board</button>
+</div>
+
+<div id="container">
+  <div id="board"></div>
+  <div id="captured">
+    <div><strong>White Captured:</strong></div>
+    <div id="whiteCaptured" class="captured-row"></div>
+    <div><strong>Black Captured:</strong></div>
+    <div id="blackCaptured" class="captured-row"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/stockfish@11.0.0/src/stockfish.js"></script>
+<script>
+  const files = ['a','b','c','d','e','f','g','h'];
+  const ranks = ['8','7','6','5','4','3','2','1'];
+  const boardDiv = document.getElementById('board');
+  const pieceSelector = document.getElementById('pieceSelector');
+  const startBtn = document.getElementById('startBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const whiteCapturedDiv = document.getElementById('whiteCaptured');
+  const blackCapturedDiv = document.getElementById('blackCaptured');
+
+  let mode = 'editor';
+  let game = new Chess();
+  let stockfish = null;
+  let selectedSquare = null;
+
+  const pieceImgs = {
+    wP: 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wp.png',
+    wR: 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wr.png',
+    wN: 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wn.png',
+    wB: 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wb.png',
+    wQ: 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wq.png',
+    wK: 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wk.png',
+    bP: 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bp.png',
+    bR: 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/br.png',
+    bN: 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bn.png',
+    bB: 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bb.png',
+    bQ: 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bq.png',
+    bK: 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bk.png'
+  };
+
+  function buildBoard() {
+    boardDiv.innerHTML = '';
+    for (let r = 0; r < 8; r++) {
+      for (let f = 0; f < 8; f++) {
+        const sq = files[f] + ranks[r];
+        const sqDiv = document.createElement('div');
+        sqDiv.className = 'square ' + ((f + r) % 2 === 0 ? 'light' : 'dark');
+        sqDiv.dataset.square = sq;
+        sqDiv.addEventListener('click', () => onSquareClick(sq));
+        boardDiv.appendChild(sqDiv);
+      }
+    }
+    renderBoard();
+  }
+
+  function renderBoard() {
+    document.querySelectorAll('.square').forEach(sqDiv => {
+      sqDiv.innerHTML = '';
+      const sq = sqDiv.dataset.square;
+      const piece = game.get(sq);
+      if (piece) {
+        const code = piece.color + piece.type.toUpperCase();
+        const img = document.createElement('img');
+        img.src = pieceImgs[code];
+        sqDiv.appendChild(img);
+      }
+    });
+  }
+
+  function updateCaptured() {
+    whiteCapturedDiv.innerHTML = '';
+    blackCapturedDiv.innerHTML = '';
+    const history = game.history({ verbose: true });
+    history.forEach(move => {
+      if (move.captured) {
+        const code = (move.color === 'w' ? 'b' : 'w') + move.captured.toUpperCase();
+        const img = document.createElement('img');
+        img.src = pieceImgs[code];
+        img.style.width = '30px';
+        img.style.height = '30px';
+        if (move.color === 'w') {
+          whiteCapturedDiv.appendChild(img);
+        } else {
+          blackCapturedDiv.appendChild(img);
+        }
+      }
+    });
+  }
+
+  function onSquareClick(sq) {
+    if (mode === 'editor') {
+      const sel = pieceSelector.value;
+      if (!sel) return;
+      // Remove piece if already on square
+      if (game.get(sq)) game.remove(sq);
+      // If selection is not empty, place selected piece
+      if (sel !== '') {
+        const color = sel[0];
+        const type = sel[1].toLowerCase();
+        game.put({ type: type, color: color }, sq);
+      }
+      renderBoard();
+    } else if (mode === 'play') {
+      if (!selectedSquare) {
+        const piece = game.get(sq);
+        if (piece && piece.color === 'w') {  // player is always white
+          selectedSquare = sq;
+        }
+      } else {
+        // Attempt move
+        let move = game.move({ from: selectedSquare, to: sq, promotion: 'q' });
+        selectedSquare = null;
+        if (move) {
+          renderBoard();
+          updateCaptured();
+          if (!game.game_over()) {
+            setTimeout(aiMove, 200);
+          } else {
+            alert('Game Over: ' + (game.in_checkmate() ? 'Checkmate' : 'Draw/Other'));
+          }
+        }
+      }
+    }
+  }
+
+  function aiMove() {
+    stockfish.postMessage('position fen ' + game.fen());
+    stockfish.postMessage('go depth 10');
+  }
+  startBtn.addEventListener('click', () => {
+    if (mode === 'play') return; // already playing
+    mode = 'play';
+    pieceSelector.disabled = true;
+    stockfish = Stockfish();
+    stockfish.onmessage = function(event) {
+      const line = event.data || event;
+      if (line.startsWith('bestmove')) {
+        const move = line.split(' ')[1];
+        if (move && move !== '(none)') {
+          game.move({ from: move.substring(0, 2), to: move.substring(2, 4), promotion: 'q' });
+          renderBoard();
+          updateCaptured();
+          if (!game.game_over()) {
+            // Player turn
+          } else {
+            alert('Game Over: ' + (game.in_checkmate() ? 'Checkmate' : 'Draw/Other'));
+          }
+        }
+      }
+    };
+    aiMove();
+  });
+
+  resetBtn.addEventListener('click', () => {
+    game.reset();
+    mode = 'editor';
+    pieceSelector.disabled = false;
+    selectedSquare = null;
+    stockfish && stockfish.postMessage('quit');
+    stockfish = null;
+    whiteCapturedDiv.innerHTML = '';
+    blackCapturedDiv.innerHTML = '';
+    renderBoard();
+  });
+
+  // Initialize board on load
+  buildBoard();
+</script>
+</body>
+</html>
